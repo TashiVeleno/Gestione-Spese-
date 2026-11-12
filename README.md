@@ -1,14 +1,15 @@
 # Gestione Spese
 
-App per tenere traccia delle spese, pensata per essere usata dal telefono e personalizzata in ogni parte.
+App per tenere traccia di spese ed entrate, pensata per essere usata dal telefono e personalizzata in ogni parte.
 
 ## Cosa fa
 
 - **Categorie con sottocategorie** a più livelli (es. Casa › Bollette › Luce), con nome, icona e colore a scelta.
 - **Conti e metodi di pagamento** definiti da te: contanti, più conti personali, conto in comune (es. Fineco), carte.
-- **Movimenti**: importo, data, categoria, conto e nota. Storico con ricerca e filtri per periodo, categoria e conto.
+- **Movimenti**: uscite ed entrate con importo, data, categoria, conto e nota. Storico con ricerca e filtri per periodo, tipo, categoria e conto. Le categorie di entrata (stipendio, rimborsi…) sono separate da quelle di uscita.
+- **Movimenti ricorrenti**: affitto, abbonamenti, stipendio e simili vengono registrati da soli alla data prevista (ogni settimana, ogni mese, ogni anno…), compresi gli arretrati se l'app non viene aperta per un po'. Si possono mettere in pausa, modificare o far terminare a una certa data.
 - **Budget** mensili o annuali per categoria o sottocategoria (anche limitati a un solo conto), con soglia di avviso personalizzabile. L'app avvisa quando si raggiunge la soglia e quando si supera il limite: al salvataggio della spesa, nel riepilogo e con un contatore sulla scheda Budget.
-- **Resoconti e grafici**: andamento mensile, ripartizione per categoria (con dettaglio delle sottocategorie), per conto e per tipo di conto, su mese, anno o periodo personalizzato.
+- **Resoconti e grafici**: entrate, uscite e saldo del periodo; andamento mensile, ripartizione per categoria (con dettaglio delle sottocategorie), per conto e per tipo di conto, su mese, anno o periodo personalizzato.
 - **Backup**: esportazione e importazione di tutti i dati (JSON) ed esportazione dei movimenti in CSV per Excel.
 - **Installabile e utilizzabile offline** (PWA), con tema chiaro e scuro.
 

@@ -179,3 +179,16 @@ dialog h2 { font-size: 1.2rem; }
   .tabs button { font-size: 0.62rem; }
   .heroval { font-size: 2rem; }
 }
+
+/* Entrate */
+:root { --income: #0a7a0a; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme='light'])) { --income: #4cc24c; } }
+:root[data-theme='dark'] { --income: #4cc24c; }
+.income { color: var(--income); }
+.herosplit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.herosplit span { display: grid; color: var(--text2); font-size: 0.85rem; }
+.herosplit strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; color: var(--text); }
+.herosplit strong.income { color: var(--income); }
+.rowbtn .txicon { margin-right: 12px; }
+.rowbtn .txamt { margin-left: 8px; }
+dialog .seg { margin-bottom: 2px; }

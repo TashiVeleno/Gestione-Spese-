@@ -1,0 +1,11 @@
+{
+  "name": "gestione-spese",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "App per la gestione delle spese: categorie con sottocategorie, conti, budget con avvisi, storico e resoconti.",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test"
+  }
+}

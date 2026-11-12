@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Gestione Spese</title>
+  <meta name="description" content="Tieni traccia delle spese per categoria e per conto, con budget, avvisi e resoconti.">
+  <meta name="theme-color" content="#2a78d6">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top"><h1 id="title">Riepilogo</h1></header>
+  <main id="main"></main>
+  <button class="fab" data-act="tx-new" aria-label="Aggiungi spesa" title="Aggiungi spesa">+</button>
+  <nav class="tabs" aria-label="Sezioni">
+    <button data-act="tab" data-id="home"><span class="ico">🏠</span>Riepilogo</button>
+    <button data-act="tab" data-id="tx"><span class="ico">🧾</span>Movimenti</button>
+    <button data-act="tab" data-id="rep"><span class="ico">📊</span>Resoconti</button>
+    <button data-act="tab" data-id="bud"><span class="ico">🎯</span>Budget<span class="count"></span></button>
+    <button data-act="tab" data-id="set"><span class="ico">⚙️</span>Impostazioni</button>
+  </nav>
+  <dialog id="dlg"></dialog>
+  <div id="toasts" aria-live="assertive"></div>
+  <noscript>Per usare Gestione Spese serve JavaScript attivo.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

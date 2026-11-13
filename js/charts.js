@@ -8,7 +8,7 @@ const esc = (s) =>
  * items: [{ label, value, color, icon, act, id }]
  */
 export function barList(items, fmt, { total } = {}) {
-  if (!items.length) return '<p class="empty">Nessuna spesa nel periodo.</p>';
+  if (!items.length) return '<p class="empty">Nessun movimento nel periodo.</p>';
   const max = Math.max(...items.map((i) => i.value));
   const tot = total ?? items.reduce((s, i) => s + i.value, 0);
   return `<ul class="barlist">${items

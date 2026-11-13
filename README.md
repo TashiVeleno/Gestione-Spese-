@@ -1,14 +1,16 @@
 # Gestione Spese
 
-App per tenere traccia delle spese, pensata per essere usata dal telefono e personalizzata in ogni parte.
+App per tenere traccia di spese ed entrate, pensata per essere usata dal telefono e personalizzata in ogni parte.
 
 ## Cosa fa
 
 - **Categorie con sottocategorie** a più livelli (es. Casa › Bollette › Luce), con nome, icona e colore a scelta.
 - **Conti e metodi di pagamento** definiti da te: contanti, più conti personali, conto in comune (es. Fineco), carte.
-- **Movimenti**: importo, data, categoria, conto e nota. Storico con ricerca e filtri per periodo, categoria e conto.
+- **Movimenti**: uscite ed entrate con importo, data, categoria, conto e nota. Storico con ricerca e filtri per periodo, tipo, categoria e conto. Le categorie di entrata (stipendio, rimborsi…) sono separate da quelle di uscita.
+- **Movimenti ricorrenti**: affitto, abbonamenti, stipendio e simili vengono registrati da soli alla data prevista (ogni settimana, ogni mese, ogni anno…), compresi gli arretrati se l'app non viene aperta per un po'. Si possono mettere in pausa, modificare o far terminare a una certa data.
+- **Importazione dell'estratto conto**: carica il file dei movimenti scaricato dalla banca (Excel `.xlsx` e `.xls`, CSV oppure PDF; riconosce da solo colonne, separatori, date e importi). Dai PDF i movimenti vengono ricostruiti dal testo della pagina: funziona con gli estratti in forma di tabella, non con le scansioni, e il risultato va controllato nell'anteprima. Prima di importare vedi l'anteprima, i movimenti già presenti vengono riconosciuti e lasciati fuori, e le categorie vengono proposte in base alle tue regole (“se la descrizione contiene…”) e ai movimenti già registrati. Il file viene letto sul dispositivo e non viene inviato da nessuna parte.
 - **Budget** mensili o annuali per categoria o sottocategoria (anche limitati a un solo conto), con soglia di avviso personalizzabile. L'app avvisa quando si raggiunge la soglia e quando si supera il limite: al salvataggio della spesa, nel riepilogo e con un contatore sulla scheda Budget.
-- **Resoconti e grafici**: andamento mensile, ripartizione per categoria (con dettaglio delle sottocategorie), per conto e per tipo di conto, su mese, anno o periodo personalizzato.
+- **Resoconti e grafici**: entrate, uscite e saldo del periodo; andamento mensile, ripartizione per categoria (con dettaglio delle sottocategorie), per conto e per tipo di conto, su mese, anno o periodo personalizzato.
 - **Backup**: esportazione e importazione di tutti i dati (JSON) ed esportazione dei movimenti in CSV per Excel.
 - **Installabile e utilizzabile offline** (PWA), con tema chiaro e scuro.
 
@@ -16,7 +18,7 @@ I dati restano solo sul dispositivo, nel browser (`localStorage`): non c'è ness
 
 ## Tecnologia
 
-HTML, CSS e JavaScript senza framework né dipendenze e senza passaggi di compilazione: i file del repository sono l'app.
+HTML, CSS e JavaScript senza framework e senza passaggi di compilazione: i file del repository sono l'app. L'unica libreria esterna è [pdf.js](https://mozilla.github.io/pdf.js/) (Mozilla, licenza Apache 2.0), copiata in `vendor/pdfjs` e caricata solo quando si importa un PDF.
 
 | File | Contenuto |
 | --- | --- |
@@ -24,6 +26,9 @@ HTML, CSS e JavaScript senza framework né dipendenze e senza passaggi di compil
 | `js/logic.js` | Calcoli (categorie, filtri, budget, CSV), senza accesso alla pagina |
 | `js/store.js` | Dati predefiniti e salvataggio |
 | `js/charts.js` | Grafici in HTML/SVG |
+| `js/importer.js` | Lettura degli estratti conto (CSV, Excel, PDF), doppioni e categorie suggerite |
+| `js/xls.js` | Lettore del vecchio formato Excel `.xls` |
+| `js/pdf.js`, `vendor/pdfjs/` | Estrazione del testo dai PDF con pdf.js 4.10.38 |
 | `js/app.js` | Interfaccia |
 | `sw.js`, `manifest.webmanifest` | Installazione e uso offline |
 

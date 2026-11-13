@@ -179,3 +179,35 @@ dialog h2 { font-size: 1.2rem; }
   .tabs button { font-size: 0.62rem; }
   .heroval { font-size: 2rem; }
 }
+
+/* Entrate */
+:root { --income: #0a7a0a; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme='light'])) { --income: #4cc24c; } }
+:root[data-theme='dark'] { --income: #4cc24c; }
+.income { color: var(--income); }
+.herosplit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.herosplit span { display: grid; color: var(--text2); font-size: 0.85rem; }
+.herosplit strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; color: var(--text); }
+.herosplit strong.income { color: var(--income); }
+.rowbtn .txicon { margin-right: 12px; }
+.rowbtn .txamt { margin-left: 8px; }
+dialog .seg { margin-bottom: 2px; }
+
+/* Importazione dell'estratto conto */
+body.importing .fab, body.importing nav.tabs { display: none; }
+.mapgrid { margin: 10px 0; }
+.implist { list-style: none; margin: 0; padding: 0; display: grid; }
+.implist li { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.implist li:last-child { border-bottom: 0; }
+.implist li.dup .impdesc, .implist li.dup .imptop { opacity: 0.6; }
+.impcheck { display: block; padding-top: 2px; }
+.impcheck input { width: 24px; height: 24px; min-height: 24px; }
+.impmain { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.imptop { display: flex; justify-content: space-between; gap: 8px; color: var(--text2); font-size: 0.9rem; }
+.imptop .txamt { color: var(--text); font-size: 1rem; }
+.imptop .txamt.income { color: var(--income); }
+.impdesc { overflow-wrap: anywhere; font-size: 0.95rem; }
+.impbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; justify-content: center; gap: 10px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line); }
+.impbar .btn.primary { flex: 1; max-width: 420px; justify-self: stretch; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.pdfwarn { background: var(--warn-bg); border: 1px solid var(--warning); border-radius: 10px; padding: 10px 12px; font-size: 0.9rem; }

@@ -101,10 +101,53 @@ test('worsened segnala solo i peggioramenti', () => {
 test('CSV e validazione del backup', () => {
   const csv = L.toCSV(txs, cats, accounts).split('\r\n');
   assert.equal(csv.length, 6);
-  assert.equal(csv[0], '"Data";"Importo";"Categoria";"Conto";"Nota"');
-  assert.ok(csv.includes('"2026-11-02";"50,00";"Casa > Bollette > Luce";"Fineco";"bolletta ""Enel"""'));
+  assert.equal(csv[0], '"Data";"Tipo";"Importo";"Categoria";"Conto";"Nota"');
+  assert.ok(csv.includes('"2026-11-02";"Uscita";"50,00";"Casa > Bollette > Luce";"Fineco";"bolletta ""Enel"""'));
   assert.equal(L.validateBackup({ accounts, categories: cats, transactions: txs, budgets: [] }), null);
   assert.ok(L.validateBackup({ accounts }));
   assert.ok(L.validateBackup({ accounts, categories: cats, budgets: [], transactions: [{ amount: 'x', date: '2026-01-01' }] }));
   assert.ok(L.validateBackup(null));
+});
+
+test('entrate e uscite restano separate', () => {
+  const mix = [...txs, { ...tx(150000, '2026-11-27', 'stipendio'), type: 'income' }];
+  assert.equal(L.sum(L.ofKind(mix, 'income')), 150000);
+  assert.equal(L.ofKind(mix, 'expense').length, txs.length);
+  const kinds = [{ id: 'a', kind: 'income' }, { id: 'b', kind: 'expense' }, { id: 'c' }];
+  assert.deepEqual(L.ofKind(kinds, 'expense').map((c) => c.id), ['b', 'c']);
+  // un'entrata non consuma mai un budget, nemmeno se finisce su una categoria di spesa
+  const data = { categories: cats, budgets: [{ id: 'b', categoryId: 'cibo', amount: 5000, period: 'month', threshold: 80 }],
+    transactions: [tx(3000, '2026-11-30', 'cibo'), { ...tx(9000, '2026-11-30', 'cibo'), type: 'income' }] };
+  assert.equal(L.allBudgetStatus(data, '2026-11')[0].spent, 3000);
+  assert.ok(L.toCSV(mix, cats, accounts).includes('"Entrata";"1500,00"'));
+});
+
+test('date successive dei ricorrenti', () => {
+  assert.equal(L.nextOccurrence('2026-11-12', { unit: 'week', every: 1 }), '2026-11-19');
+  assert.equal(L.nextOccurrence('2026-12-25', { unit: 'week', every: 2 }), '2027-01-08');
+  assert.equal(L.nextOccurrence('2026-11-12', { unit: 'month', every: 1, anchorDay: 12 }), '2026-12-12');
+  assert.equal(L.nextOccurrence('2026-12-12', { unit: 'month', every: 3, anchorDay: 12 }), '2027-03-12');
+  // il 31 si accorcia nei mesi brevi e poi torna 31
+  assert.equal(L.nextOccurrence('2027-01-31', { unit: 'month', every: 1, anchorDay: 31 }), '2027-02-28');
+  assert.equal(L.nextOccurrence('2027-02-28', { unit: 'month', every: 1, anchorDay: 31 }), '2027-03-31');
+  assert.equal(L.nextOccurrence('2024-02-29', { unit: 'year', every: 1, anchorDay: 29 }), '2025-02-28');
+});
+
+test('applyRecurring registra gli arretrati una sola volta', () => {
+  const rule = (o) => ({ id: 'r', type: 'expense', amount: 1299, categoryId: 'cibo', accountId: 'cash', note: 'abbonamento',
+    unit: 'month', every: 1, nextDate: '2026-08-31', anchorDay: 31, endDate: null, active: true, ...o });
+  const data = { transactions: [], recurring: [rule()] };
+  const made = L.applyRecurring(data, '2026-11-12');
+  assert.deepEqual(made.map((t) => t.date), ['2026-08-31', '2026-09-30', '2026-10-31']);
+  assert.equal(data.recurring[0].nextDate, '2026-11-30');
+  assert.ok(made.every((t) => t.recurringId === 'r' && t.amount === 1299 && t.type === 'expense'));
+  assert.equal(L.applyRecurring(data, '2026-11-12').length, 0); // niente doppioni
+  assert.equal(L.applyRecurring(data, '2026-11-30').length, 1); // scatta il giorno stesso
+  // regole in pausa, future o terminate non creano nulla
+  for (const o of [{ active: false }, { nextDate: '2026-12-01' }, { endDate: '2026-08-30' }])
+    assert.equal(L.applyRecurring({ transactions: [], recurring: [rule(o)] }, '2026-11-12').length, 0);
+  // la data di fine è inclusa
+  assert.equal(L.applyRecurring({ transactions: [], recurring: [rule({ endDate: '2026-09-30' })] }, '2026-11-12').length, 2);
+  // entrate
+  assert.equal(L.applyRecurring({ transactions: [], recurring: [rule({ type: 'income', nextDate: '2026-11-12' })] }, '2026-11-12')[0].type, 'income');
 });

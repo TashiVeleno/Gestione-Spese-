@@ -97,6 +97,12 @@ export function flattenTree(cats) {
 
 // ---------- Movimenti ----------
 
+export const isIncome = (t) => t.type === 'income';
+
+/** Filtra movimenti (campo type) o categorie (campo kind) per tipo: 'expense' | 'income'. */
+export const ofKind = (items, kind) =>
+  items.filter((x) => ((x.type ?? x.kind) === 'income') === (kind === 'income'));
+
 export const sum = (txs) => txs.reduce((s, t) => s + t.amount, 0);
 
 export function filterTx(txs, f = {}) {
@@ -181,8 +187,10 @@ export function budgetStatus(b, txs, cats, ym) {
   return { budget: b, spent, limit: b.amount, remaining: b.amount - spent, pct, threshold, state, from, to };
 }
 
-export const allBudgetStatus = (data, ym) =>
-  data.budgets.map((b) => budgetStatus(b, data.transactions, data.categories, ym));
+export function allBudgetStatus(data, ym) {
+  const expenses = ofKind(data.transactions, 'expense');
+  return data.budgets.map((b) => budgetStatus(b, expenses, data.categories, ym));
+}
 
 /** Budget il cui stato è peggiorato tra due fotografie (per l'avviso al salvataggio). */
 export function worsened(before, after) {
@@ -191,16 +199,81 @@ export function worsened(before, after) {
   return after.filter((s) => rank[s.state] > rank[prev.get(s.budget.id) ?? 'ok']);
 }
 
+// ---------- Movimenti ricorrenti ----------
+
+export const FREQS = [
+  ['week:1', 'Ogni settimana'],
+  ['week:2', 'Ogni 2 settimane'],
+  ['month:1', 'Ogni mese'],
+  ['month:2', 'Ogni 2 mesi'],
+  ['month:3', 'Ogni 3 mesi'],
+  ['month:6', 'Ogni 6 mesi'],
+  ['year:1', 'Ogni anno'],
+];
+
+export const freqLabel = (r) => (FREQS.find(([k]) => k === `${r.unit}:${r.every}`) || ['', 'Periodico'])[1];
+
+const parseISO = (s) => {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
+/**
+ * Data successiva di una regola { unit: 'week'|'month'|'year', every, anchorDay }.
+ * Per mesi e anni si mantiene il giorno del mese scelto all'inizio (anchorDay),
+ * accorciato quando il mese è più breve: il 31 diventa 28/29 febbraio e poi torna 31.
+ */
+export function nextOccurrence(date, rule) {
+  const d = parseISO(date);
+  const every = Math.max(1, rule.every || 1);
+  if (rule.unit === 'week') {
+    d.setDate(d.getDate() + 7 * every);
+    return todayISO(d);
+  }
+  const first = new Date(d.getFullYear(), d.getMonth() + (rule.unit === 'year' ? 12 * every : every), 1);
+  const last = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  first.setDate(Math.min(rule.anchorDay || d.getDate(), last));
+  return todayISO(first);
+}
+
+/**
+ * Crea i movimenti delle regole ricorrenti scaduti fino a oggi (compresi gli arretrati)
+ * e sposta in avanti la prossima data di ogni regola. Restituisce i movimenti creati.
+ */
+export function applyRecurring(data, today = todayISO(), max = 1000) {
+  const created = [];
+  for (const r of data.recurring || []) {
+    while (r.active !== false && r.nextDate <= today && (!r.endDate || r.nextDate <= r.endDate) && created.length < max) {
+      const t = {
+        id: uid(),
+        createdAt: Date.now(),
+        type: r.type === 'income' ? 'income' : 'expense',
+        amount: r.amount,
+        date: r.nextDate,
+        categoryId: r.categoryId,
+        accountId: r.accountId,
+        note: r.note || '',
+        recurringId: r.id,
+      };
+      data.transactions.push(t);
+      created.push(t);
+      r.nextDate = nextOccurrence(r.nextDate, r);
+    }
+  }
+  return created;
+}
+
 // ---------- Import / export ----------
 
 export function toCSV(txs, cats, accounts) {
   const acc = new Map(accounts.map((a) => [a.id, a]));
   const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [['Data', 'Importo', 'Categoria', 'Conto', 'Nota'].map(cell).join(';')];
+  const lines = [['Data', 'Tipo', 'Importo', 'Categoria', 'Conto', 'Nota'].map(cell).join(';')];
   for (const t of [...txs].sort((a, b) => a.date.localeCompare(b.date))) {
     lines.push(
       [
         t.date,
+        isIncome(t) ? 'Entrata' : 'Uscita',
         (t.amount / 100).toFixed(2).replace('.', ','),
         catPath(cats, t.categoryId, ' > '),
         acc.get(t.accountId)?.name ?? '',
@@ -220,5 +293,7 @@ export function validateBackup(d) {
     if (!Array.isArray(d[k])) return `Nel file manca la sezione "${k}".`;
   if (d.transactions.some((t) => !Number.isFinite(t.amount) || !/^\d{4}-\d{2}-\d{2}$/.test(t.date || '')))
     return 'Il file contiene movimenti non validi.';
+  if (d.recurring !== undefined && !Array.isArray(d.recurring)) return 'Il file contiene movimenti ricorrenti non validi.';
+  if (d.rules !== undefined && !Array.isArray(d.rules)) return 'Il file contiene regole non valide.';
   return null;
 }

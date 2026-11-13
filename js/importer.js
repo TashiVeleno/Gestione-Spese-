@@ -1,5 +1,7 @@
-// Lettura degli estratti conto esportati dalla banca (CSV, Excel .xlsx, tabelle HTML).
+// Lettura degli estratti conto esportati dalla banca (CSV, Excel .xlsx e .xls, tabelle HTML, PDF).
 // Nessun accesso alla pagina: tutto qui è usato anche dai test.
+
+import { readXls } from './xls.js';
 
 // ---------- File → tabella (righe di celle) ----------
 
@@ -124,8 +126,87 @@ function parseHtmlTable(html) {
 
 export class ImportError extends Error {}
 
-/** Legge un file della banca e restituisce la tabella grezza. */
-export async function readTable(buf) {
+// ---------- PDF ----------
+
+const DATE_TOKEN = /^\d{1,2}[/.\-]\d{1,2}[/.\-](\d{4}|\d{2})$/;
+const MONEY_TOKEN = /^[+\-−]?(\d{1,3}(\.\d{3})+|\d+),\d{2}[+\-−]?$/;
+const PDF_OUT = /^(uscit|addebit|dare|debit)/, PDF_IN = /^(entrat|accredit|avere|credit)/, PDF_AMOUNT = /^(importo|ammontare|amount)/, PDF_BALANCE = /^saldo/;
+
+/**
+ * Ricostruisce la tabella dei movimenti dal testo di un PDF.
+ * pages: per ogni pagina, i frammenti di testo { str, x, y, w } con y che cresce verso il basso.
+ * Un movimento è una riga che inizia con una data; le righe successive senza data né importi
+ * ne completano la descrizione. Gli importi sono attribuiti a Uscite/Entrate in base alla colonna
+ * dell'intestazione a cui sono allineati; quelli sotto "Saldo" vengono ignorati.
+ */
+export function tableFromPdf(pages) {
+  const out = [['Data', 'Uscite', 'Entrate', 'Importo', 'Descrizione']];
+  let cols = null; // posizione delle colonne di importo, dall'ultima intestazione vista
+  let last = null, lastY = 0, lastH = 10;
+  for (const items of pages) {
+    // Frammenti → parole con posizione stimata → righe.
+    const words = [];
+    for (const it of items) {
+      const str = String(it.str ?? '');
+      if (!str.trim()) continue;
+      const per = str.length ? (it.w || 0) / str.length : 0;
+      for (const m of str.matchAll(/\S+/g)) words.push({ t: m[0], x: it.x + m.index * per, r: it.x + (m.index + m[0].length) * per, y: it.y, h: it.h || 10 });
+    }
+    words.sort((a, b) => a.y - b.y || a.x - b.x);
+    const lines = [];
+    for (const w of words) {
+      const l = lines[lines.length - 1];
+      if (l && Math.abs(w.y - l.y) <= Math.max(2, w.h * 0.35)) l.words.push(w);
+      else lines.push({ y: w.y, h: w.h, words: [w] });
+    }
+    last = null;
+    for (const line of lines) {
+      const ws = line.words.sort((a, b) => a.x - b.x);
+      const low = ws.map((w) => norm(w.t));
+      // Intestazione della tabella: ricorda dove sono le colonne degli importi.
+      const heads = ws.map((w, i) => ({ w, kind: PDF_OUT.test(low[i]) ? 'out' : PDF_IN.test(low[i]) ? 'inc' : PDF_AMOUNT.test(low[i]) ? 'amount' : PDF_BALANCE.test(low[i]) ? 'balance' : null })).filter((h) => h.kind);
+      if (heads.length && low.some((t) => /^(data|date)$/.test(t)) && !ws.some((w) => MONEY_TOKEN.test(w.t))) {
+        cols = heads.map((h) => ({ kind: h.kind, c: (h.w.x + h.w.r) / 2, r: h.w.r }));
+        last = null;
+        continue;
+      }
+      const isDate = (w) => DATE_TOKEN.test(w.t) && parseBankDate(w.t);
+      const money = ws.filter((w) => MONEY_TOKEN.test(w.t));
+      if (ws.length && isDate(ws[0])) {
+        const row = [ws[0].t, '', '', '', ''];
+        const used = new Set(money);
+        let n = 0;
+        for (const m of money) {
+          let kind = 'amount';
+          if (cols) {
+            // Colonna più vicina: gli importi sono di solito allineati a destra sotto l'intestazione.
+            const near = cols.reduce((a, b) => (Math.min(Math.abs(m.r - b.r), Math.abs((m.x + m.r) / 2 - b.c)) < Math.min(Math.abs(m.r - a.r), Math.abs((m.x + m.r) / 2 - a.c)) ? b : a));
+            kind = near.kind;
+          } else if (n++ > 0) kind = 'balance'; // senza intestazione vale il primo importo; gli altri sono saldi
+          const idx = { out: 1, inc: 2, amount: 3 }[kind];
+          if (idx && !row[idx]) row[idx] = m.t;
+        }
+        let i = 1;
+        while (i < ws.length && isDate(ws[i])) i++; // data valuta e simili
+        row[4] = ws.slice(i).filter((w) => !used.has(w)).map((w) => w.t).join(' ');
+        if (row[1] || row[2] || row[3]) { out.push(row); last = row; } else last = null;
+        lastY = line.y; lastH = line.h;
+      } else if (last && !money.length && line.y - lastY < lastH * 2.2 && ws.length) {
+        last[4] = (last[4] + ' ' + ws.map((w) => w.t).join(' ')).trim();
+        lastY = line.y;
+      } else last = null;
+    }
+  }
+  // Tiene solo le colonne di importo davvero usate, così il riconoscimento delle colonne non si confonde.
+  const keep = [0, 1, 2, 3, 4].filter((c) => c === 0 || c === 4 || out.some((r, i) => i > 0 && r[c]));
+  return out.map((r) => keep.map((c) => r[c]));
+}
+
+/**
+ * Legge un file della banca e restituisce la tabella grezza.
+ * readPdf(buf) deve restituire i frammenti di testo delle pagine (vedi tableFromPdf): nel browser lo fornisce js/pdf.js.
+ */
+export async function readTable(buf, { readPdf } = {}) {
   const b = new Uint8Array(buf, 0, Math.min(8, buf.byteLength));
   if (b[0] === 0x50 && b[1] === 0x4b) {
     try {
@@ -134,10 +215,26 @@ export async function readTable(buf) {
       throw new ImportError('Non riesco a leggere questo file Excel. Prova a salvarlo come CSV.');
     }
   }
-  if (b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0)
-    throw new ImportError('Questo è un file Excel di vecchio tipo (.xls). Aprilo e salvalo come .xlsx o CSV, oppure scarica dalla banca il formato CSV.');
-  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46)
-    throw new ImportError('I PDF non si possono importare: scarica dalla banca i movimenti in formato Excel o CSV.');
+  if (b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0) {
+    try {
+      return readXls(buf);
+    } catch (e) {
+      throw new ImportError(/password/.test(e.message) ? 'Questo file Excel è protetto da password: toglila e riprova.' : 'Non riesco a leggere questo file Excel (.xls). Prova a salvarlo come .xlsx o CSV.');
+    }
+  }
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) {
+    if (!readPdf) throw new ImportError('La lettura dei PDF non è disponibile.');
+    let pages;
+    try {
+      pages = await readPdf(buf);
+    } catch (e) {
+      throw new ImportError(/password/i.test(e?.name + ' ' + e?.message) ? 'Questo PDF è protetto da password: salvane una copia senza password e riprova.' : 'Non riesco ad aprire questo PDF.');
+    }
+    if (!pages.some((p) => p.length)) throw new ImportError('Questo PDF non contiene testo: sembra una scansione o una foto, e non si può leggere. Scarica dalla banca il PDF originale oppure il file Excel o CSV.');
+    const table = tableFromPdf(pages);
+    if (table.length < 2) throw new ImportError('Non ho trovato movimenti in questo PDF. Se la banca lo permette, scarica i movimenti in formato Excel o CSV.');
+    return table;
+  }
   const text = decodeText(buf);
   return /<table\b/i.test(text) ? parseHtmlTable(text) : parseCSV(text);
 }

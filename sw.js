@@ -1,8 +1,8 @@
 // Service worker: rende l'app utilizzabile offline.
 // Strategia "rete prima, poi cache": online si vede sempre l'ultima versione.
-const CACHE = 'gestione-spese-v3';
+const CACHE = 'gestione-spese-v4';
 const ASSETS = [
-  './', 'index.html', 'css/style.css', 'js/app.js', 'js/logic.js', 'js/store.js', 'js/charts.js', 'js/importer.js',
+  './', 'index.html', 'css/style.css', 'js/app.js', 'js/logic.js', 'js/store.js', 'js/charts.js', 'js/importer.js', 'js/xls.js', 'js/pdf.js', 'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
 ];
 

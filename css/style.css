@@ -210,3 +210,4 @@ body.importing .fab, body.importing nav.tabs { display: none; }
 .impbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; justify-content: center; gap: 10px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line); }
 .impbar .btn.primary { flex: 1; max-width: 420px; justify-self: stretch; }
 .btn:disabled { opacity: 0.5; cursor: default; }
+.pdfwarn { background: var(--warn-bg); border: 1px solid var(--warning); border-radius: 10px; padding: 10px 12px; font-size: 0.9rem; }

@@ -331,7 +331,7 @@ function viewSettings() {
     <section class="card"><h2>Dati</h2>
       <p class="hint">I dati restano solo su questo dispositivo, nel browser. Esporta un backup ogni tanto: serve anche per passare i dati a un altro telefono o computer.</p>
       <div class="btnrow">
-        <button class="btn" data-act="imp-pick">Importa estratto conto (CSV o Excel)</button>
+        <button class="btn" data-act="imp-pick">Importa estratto conto (Excel, CSV o PDF)</button>
         <button class="btn" data-act="export-json">Esporta backup</button>
         <button class="btn" data-act="import-json">Importa backup</button>
         <button class="btn" data-act="export-csv">Esporta tutto in CSV</button>
@@ -343,17 +343,18 @@ function viewSettings() {
 
 async function startImport(file) {
   try {
-    const rows = await I.readTable(await file.arrayBuffer());
+    const rows = await I.readTable(await file.arrayBuffer(), { readPdf: async (buf) => (await import('./pdf.js')).readPdf(buf) });
+    const isPdf = /\.pdf$/i.test(file.name);
     const det = I.detectTable(rows);
     if (!det) return toast('Non trovo una tabella di movimenti in questo file.', 'over');
-    ui.imp = { name: file.name, rows, ...det, accountId: defaultAccountId(), back: ui.tab === 'imp' ? 'tx' : ui.tab };
+    ui.imp = { name: file.name, isPdf, rows, ...det, accountId: defaultAccountId(), back: ui.tab === 'imp' ? 'tx' : ui.tab };
     rebuildImport();
     ui.tab = 'imp';
     render();
     window.scrollTo(0, 0);
   } catch (e) {
     if (!(e instanceof I.ImportError)) console.error(e);
-    toast(e instanceof I.ImportError ? e.message : 'Non riesco a leggere questo file. Scarica dalla banca i movimenti in formato CSV o Excel.', 'over');
+    toast(e instanceof I.ImportError ? e.message : 'Non riesco a leggere questo file. Scarica dalla banca i movimenti in formato Excel, CSV o PDF.', 'over');
   }
 }
 
@@ -381,6 +382,7 @@ function viewImport() {
   const n = impCount();
   return `<section class="card">
       <p class="hint">File: <strong>${esc(im.name)}</strong></p>
+      ${im.isPdf ? '<p class="pdfwarn">⚠ Da un PDF i movimenti vengono ricostruiti dal testo della pagina, quindi il risultato è meno sicuro che da Excel o CSV. Controlla importi, segno (entrata o uscita) e numero dei movimenti prima di importare.</p>' : ''}
       <label>A quale conto appartiene questo estratto?<select data-imp="account">${accOptions(im.accountId)}</select></label>
       <details${im.items.length ? '' : ' open'}><summary>Colonne del file (riconosciute in automatico)</summary>
         <div class="grid2 mapgrid">${colSelect('date', 'Data')}${colSelect('desc', 'Descrizione')}${colSelect('amount', 'Importo (colonna unica con segno)')}<span></span>${colSelect('inc', 'Entrate')}${colSelect('out', 'Uscite')}</div>

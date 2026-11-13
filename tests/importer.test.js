@@ -64,9 +64,7 @@ test('Excel .xlsx in stile Fineco', async () => {
   ]);
 });
 
-test('file non supportati danno un messaggio chiaro', async () => {
-  await assert.rejects(I.readTable(new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0, 0, 0, 0]).buffer), I.ImportError);
-  await assert.rejects(I.readTable(new TextEncoder().encode('%PDF-1.7').buffer), I.ImportError);
+test('tabelle HTML salvate come .xls', async () => {
   const html = await I.readTable(new TextEncoder().encode('<html><table><tr><th>Data</th><th>Importo</th></tr><tr><td>01/11/2026</td><td>-5,00&nbsp;</td></tr></table>').buffer);
   assert.deepEqual(html, [['Data', 'Importo'], ['01/11/2026', '-5,00']]);
 });
@@ -97,4 +95,60 @@ test('doppioni: già importati, forse inseriti a mano, ripetizioni vere', () => 
   ];
   const items = I.markDuplicates([it(), it(), it({ date: '2026-11-10', amount: 3000, desc: 'Benzina' }), it({ date: '2026-11-11', amount: 999 })], existing, 'a');
   assert.deepEqual(items.map((i) => [i.dup, i.selected]), [['yes', false], [null, true], ['maybe', false], [null, true]]);
+});
+
+test('vecchio Excel .xls', async () => {
+  const { XLS_B64 } = await import('./fixtures.js');
+  const rows = await I.readTable(Uint8Array.from(Buffer.from(XLS_B64, 'base64')).buffer);
+  const det = I.detectTable(rows);
+  assert.deepEqual(det.map, { date: 0, inc: 2, out: 3, amount: null, desc: 5 });
+  const { items, skipped } = I.buildItems(rows, det.headerIdx, det.map);
+  assert.equal(items.length, 30);
+  assert.equal(skipped, 0);
+  assert.deepEqual(items.slice(0, 4).map((i) => [i.date, i.type, i.amount]), [
+    ['2026-11-01', 'expense', 500], ['2026-11-02', 'expense', 1334], ['2026-11-03', 'expense', 700], ['2026-11-04', 'income', 185000],
+  ]);
+  // tutte le descrizioni integre, anche quelle oltre il primo record della tabella delle stringhe
+  items.forEach((it, k) => assert.equal(it.desc, `Negozio n.${k} città è più àèìòù € ${String.fromCharCode(97 + (k % 26)).repeat(290)}`));
+  // un file OLE che non è un foglio di calcolo
+  const bad = new Uint8Array(2048);
+  bad.set([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+  await assert.rejects(I.readTable(bad.buffer), I.ImportError);
+});
+
+test('PDF: colonne Uscite/Entrate, saldo ignorato, descrizione su più righe', () => {
+  const w = (str, x, y, width = str.length * 5) => ({ str, x, y, w: width, h: 10 });
+  const right = (str, r, y) => w(str, r - str.length * 5, y);
+  const page = (y0) => [
+    w('Estratto conto al 30/11/2026 saldo 1.000,00', 20, y0),
+    w('Data', 20, y0 + 30), w('Valuta', 80, y0 + 30), right('Uscite', 250, y0 + 30), right('Entrate', 330, y0 + 30), w('Descrizione', 350, y0 + 30), right('Saldo', 580, y0 + 30),
+    w('10/11/2026 10/11/2026', 20, y0 + 50), right('54,30', 250, y0 + 50), w('Pagamento Visa Debit', 350, y0 + 50), right('945,70', 580, y0 + 50),
+    w('ESSELUNGA MILANO', 350, y0 + 62),
+    w('27/11/2026', 20, y0 + 80), w('27/11/2026', 80, y0 + 80), right('1.850,00', 330, y0 + 80), w('Stipendio ACME', 350, y0 + 80), right('2.795,70', 580, y0 + 80),
+    w('Pagina 1 di 2', 250, y0 + 400),
+  ];
+  const rows = I.tableFromPdf([page(0), [...page(0).slice(1, 3), right('Uscite', 250, 30), right('Entrate', 330, 30), w('03/12/2026', 20, 50), right('650,00', 250, 50), w('Affitto', 350, 50)]]);
+  assert.deepEqual(rows, [
+    ['Data', 'Uscite', 'Entrate', 'Descrizione'],
+    ['10/11/2026', '54,30', '', 'Pagamento Visa Debit ESSELUNGA MILANO'],
+    ['27/11/2026', '', '1.850,00', 'Stipendio ACME'],
+    ['03/12/2026', '650,00', '', 'Affitto'],
+  ]);
+  const det = I.detectTable(rows);
+  assert.deepEqual(I.buildItems(rows, det.headerIdx, det.map).items.map((i) => [i.date, i.type, i.amount]), [
+    ['2026-11-10', 'expense', 5430], ['2026-11-27', 'income', 185000], ['2026-12-03', 'expense', 65000],
+  ]);
+});
+
+test('PDF: colonna unica con segno e PDF senza testo', async () => {
+  const w = (str, x, y) => ({ str, x, y, w: str.length * 5, h: 10 });
+  const rows = I.tableFromPdf([[w('Data contabile', 20, 10), w('Descrizione', 150, 10), w('Importo', 500, 10),
+    w('12/11/2026', 20, 30), w('POS BAR SPORT', 150, 30), w('-2,40', 510, 30),
+    w('05/11/2026', 20, 50), w('STIPENDIO', 150, 50), w('1.850,00', 495, 50),
+    w('Totale 1.847,60', 150, 70)]]);
+  assert.deepEqual(rows, [['Data', 'Importo', 'Descrizione'], ['12/11/2026', '-2,40', 'POS BAR SPORT'], ['05/11/2026', '1.850,00', 'STIPENDIO']]);
+  const pdf = new TextEncoder().encode('%PDF-1.7').buffer;
+  await assert.rejects(I.readTable(pdf, { readPdf: async () => [[], []] }), /scansione/);
+  await assert.rejects(I.readTable(pdf, { readPdf: async () => { throw Object.assign(new Error('x'), { name: 'PasswordException' }); } }), /password/);
+  await assert.rejects(I.readTable(pdf, { readPdf: async () => [[w('Nessun movimento', 10, 10)]] }), /Non ho trovato movimenti/);
 });

@@ -294,5 +294,6 @@ export function validateBackup(d) {
   if (d.transactions.some((t) => !Number.isFinite(t.amount) || !/^\d{4}-\d{2}-\d{2}$/.test(t.date || '')))
     return 'Il file contiene movimenti non validi.';
   if (d.recurring !== undefined && !Array.isArray(d.recurring)) return 'Il file contiene movimenti ricorrenti non validi.';
+  if (d.rules !== undefined && !Array.isArray(d.rules)) return 'Il file contiene regole non valide.';
   return null;
 }

@@ -45,6 +45,7 @@ export function defaultData() {
     transactions: [],
     budgets: [],
     recurring: [],
+    rules: [],
   };
 }
 
@@ -61,6 +62,7 @@ export function normalize(d) {
     transactions: (d.transactions || []).map((t) => ({ ...t, type: t.type === 'income' ? 'income' : 'expense' })),
     budgets: d.budgets || [],
     recurring: d.recurring || [],
+    rules: d.rules || [],
   };
 }
 

@@ -1,6 +1,7 @@
 import * as L from './logic.js';
 import { load, save, defaultData, normalize, PALETTE, ACCOUNT_TYPES } from './store.js';
 import { barList, columnChart, meter } from './charts.js';
+import * as I from './importer.js';
 
 let db = load();
 const thisMonth = () => L.todayISO().slice(0, 7);
@@ -8,6 +9,7 @@ const ui = {
   tab: 'home',
   month: thisMonth(),
   tx: { period: 'month', from: '', to: '', type: '', cat: '', acc: '', q: '' },
+  imp: null,
   rep: { mode: 'month', from: L.monthRange(thisMonth()).from, to: L.todayISO(), drill: null, acc: '', kind: 'expense' },
 };
 
@@ -209,7 +211,8 @@ function viewTx() {
       ${f.period === 'custom' ? `<div class="grid2"><label>Dal<input type="date" data-f="tx.from" value="${esc(f.from)}"></label><label>Al<input type="date" data-f="tx.to" value="${esc(f.to)}"></label></div>` : ''}
     </section>
     <section class="card"><div id="txlist">${txListHtml()}</div>
-      <button class="btn" data-act="export-csv-filtered">Esporta questi movimenti (CSV)</button></section>`;
+      <div class="btnrow"><button class="btn" data-act="imp-pick">Importa estratto conto</button>
+        <button class="btn" data-act="export-csv-filtered">Esporta questi movimenti (CSV)</button></div></section>`;
 }
 
 function reportRange() {
@@ -315,6 +318,10 @@ function viewSettings() {
           <span class="grow">${esc((cat.icon ? cat.icon + ' ' : '') + cat.name)}<small>${count(L.descendantIds(db.categories, cat.id))} movimenti${cat.archived ? ' · archiviata' : ''}</small></span></button>
         <button class="iconbtn" data-act="cat-new" data-id="${cat.id}" aria-label="Aggiungi sottocategoria a ${esc(cat.name)}" title="Aggiungi sottocategoria">＋</button></li>`).join('')}</ul>
       <button class="btn primary" data-act="cat-new-root" data-id="${k}">Aggiungi categoria di ${KIND[k].one.toLowerCase()}</button></section>`).join('')}
+    <section class="card"><h2>Regole per le categorie</h2>
+      <p class="hint">Quando importi un estratto conto, se la descrizione contiene il testo della regola il movimento riceve quella categoria. Senza regole, l'app riusa la categoria dell'ultimo movimento con la stessa descrizione.</p>
+      ${db.rules.length ? `<ul class="rows">${db.rules.map((r) => `<li><button class="rowbtn" data-act="rule-edit" data-id="${r.id}"><span class="grow">Contiene “${esc(r.text)}”<small>→ ${esc(L.catPath(db.categories, r.categoryId))}</small></span><span class="chev">›</span></button></li>`).join('')}</ul>` : '<p class="empty">Nessuna regola.</p>'}
+      <button class="btn primary" data-act="rule-new">Aggiungi regola</button></section>
     <section class="card"><h2>Preferenze</h2>
       <div class="grid3">
         <label>Valuta<select data-s="currency">${['EUR', 'USD', 'GBP', 'CHF'].map((c) => `<option${s.currency === c ? ' selected' : ''}>${c}</option>`).join('')}</select></label>
@@ -324,6 +331,7 @@ function viewSettings() {
     <section class="card"><h2>Dati</h2>
       <p class="hint">I dati restano solo su questo dispositivo, nel browser. Esporta un backup ogni tanto: serve anche per passare i dati a un altro telefono o computer.</p>
       <div class="btnrow">
+        <button class="btn" data-act="imp-pick">Importa estratto conto (CSV o Excel)</button>
         <button class="btn" data-act="export-json">Esporta backup</button>
         <button class="btn" data-act="import-json">Importa backup</button>
         <button class="btn" data-act="export-csv">Esporta tutto in CSV</button>
@@ -331,12 +339,131 @@ function viewSettings() {
       </div><input type="file" id="importfile" accept="application/json,.json" hidden></section>`;
 }
 
-const VIEWS = { home: viewHome, tx: viewTx, rep: viewReports, bud: viewBudgets, set: viewSettings };
-const TITLES = { home: 'Riepilogo', tx: 'Movimenti', rep: 'Resoconti', bud: 'Budget', set: 'Impostazioni' };
+// ---------- Importazione dell'estratto conto ----------
+
+async function startImport(file) {
+  try {
+    const rows = await I.readTable(await file.arrayBuffer());
+    const det = I.detectTable(rows);
+    if (!det) return toast('Non trovo una tabella di movimenti in questo file.', 'over');
+    ui.imp = { name: file.name, rows, ...det, accountId: defaultAccountId(), back: ui.tab === 'imp' ? 'tx' : ui.tab };
+    rebuildImport();
+    ui.tab = 'imp';
+    render();
+    window.scrollTo(0, 0);
+  } catch (e) {
+    if (!(e instanceof I.ImportError)) console.error(e);
+    toast(e instanceof I.ImportError ? e.message : 'Non riesco a leggere questo file. Scarica dalla banca i movimenti in formato CSV o Excel.', 'over');
+  }
+}
+
+/** Ricalcola i movimenti dell'anteprima dopo un cambio di colonne. */
+function rebuildImport() {
+  const im = ui.imp;
+  const { items, skipped } = I.buildItems(im.rows, im.headerIdx, im.map);
+  const suggest = I.categorySuggester(db);
+  for (const it of items) it.categoryId = suggest(it) || '';
+  items.sort((a, b) => b.date.localeCompare(a.date));
+  im.items = I.markDuplicates(items, db.transactions, im.accountId);
+  im.skipped = skipped;
+}
+
+const unclassifiedIds = () => new Set(db.categories.filter((c) => c.name === I.UNCLASSIFIED && !c.parentId).map((c) => c.id));
+const impCount = () => ui.imp.items.filter((i) => i.selected).length;
+const impButtonLabel = (n) => (n === 1 ? 'Importa 1 movimento' : `Importa ${n} movimenti`);
+
+function viewImport() {
+  const im = ui.imp;
+  const colSelect = (key, label) => `<label>${label}<select data-imp="map.${key}"><option value="">— nessuna —</option>${im.headers.map((h, i) => `<option value="${i}"${im.map[key] === i ? ' selected' : ''}>${esc(h)}</option>`).join('')}</select></label>`;
+  const opts = { expense: catOptions(null, { none: I.UNCLASSIFIED, kind: 'expense', exclude: unclassifiedIds() }), income: catOptions(null, { none: I.UNCLASSIFIED, kind: 'income', exclude: unclassifiedIds() }) };
+  const withSel = (html, id) => (id ? html.replace(`value="${id}"`, `value="${id}" selected`) : html);
+  const dups = im.items.filter((i) => i.dup).length;
+  const n = impCount();
+  return `<section class="card">
+      <p class="hint">File: <strong>${esc(im.name)}</strong></p>
+      <label>A quale conto appartiene questo estratto?<select data-imp="account">${accOptions(im.accountId)}</select></label>
+      <details${im.items.length ? '' : ' open'}><summary>Colonne del file (riconosciute in automatico)</summary>
+        <div class="grid2 mapgrid">${colSelect('date', 'Data')}${colSelect('desc', 'Descrizione')}${colSelect('amount', 'Importo (colonna unica con segno)')}<span></span>${colSelect('inc', 'Entrate')}${colSelect('out', 'Uscite')}</div>
+        <p class="hint">Usa “Importo” se il file ha una sola colonna con i negativi per le uscite, oppure “Entrate” e “Uscite” se sono separate.</p></details>
+    </section>
+    <section class="card">
+      ${im.items.length
+        ? `<p class="listsum">Trovati <strong>${im.items.length}</strong> movimenti${dups ? `, di cui <strong>${dups}</strong> sembrano già presenti e non sono selezionati` : ''}.${im.skipped ? ` ${im.skipped === 1 ? 'Una riga senza data o importo è stata saltata' : `${im.skipped} righe senza data o importo sono state saltate`}.` : ''}</p>
+        <div class="btnrow"><button class="btn small" data-act="imp-all">Seleziona tutti</button><button class="btn small" data-act="imp-none">Deseleziona tutti</button></div>
+        <ul class="implist">${im.items.map((it, i) => `<li class="${it.dup ? 'dup' : ''}">
+          <label class="impcheck"><input type="checkbox" data-imp-row="${i}"${it.selected ? ' checked' : ''} aria-label="Importa questo movimento"></label>
+          <div class="impmain"><div class="imptop"><span>${esc(shortDate(it.date))}</span><span class="txamt${it.type === 'income' ? ' income' : ''}">${it.type === 'income' ? '+' : '−'}${esc(fmt(it.amount))}</span></div>
+            <div class="impdesc">${esc(it.desc || '(senza descrizione)')}</div>
+            ${it.dup ? `<div class="badge warn">⚠ ${it.dup === 'yes' ? 'Già importato' : 'Forse già inserito a mano'}</div>` : ''}
+            <select data-imp-cat="${i}" aria-label="Categoria">${withSel(opts[it.type], it.categoryId)}</select></div></li>`).join('')}</ul>`
+        : '<p class="empty">Non ho trovato movimenti con queste colonne. Apri “Colonne del file” qui sopra e indica dove sono data e importo.</p>'}
+    </section>
+    <div class="impbar"><button class="btn" data-act="imp-cancel">Annulla</button>
+      <button class="btn primary" data-act="imp-confirm" id="impgo"${n ? '' : ' disabled'}>${impButtonLabel(n)}</button></div>`;
+}
+
+function confirmImport() {
+  const im = ui.imp;
+  const chosen = im.items.filter((i) => i.selected);
+  if (!chosen.length) return;
+  const month = thisMonth();
+  const before = L.allBudgetStatus(db, month);
+  const fallback = {};
+  const unclassified = (kind) => {
+    if (fallback[kind]) return fallback[kind];
+    let c = db.categories.find((x) => x.kind === kind && !x.parentId && x.name === I.UNCLASSIFIED);
+    if (!c) db.categories.push((c = { id: L.uid(), name: I.UNCLASSIFIED, icon: '❓', color: '#8a8a85', kind, parentId: null, archived: false }));
+    c.archived = false;
+    return (fallback[kind] = c.id);
+  };
+  for (const it of chosen)
+    db.transactions.push({
+      id: L.uid(), createdAt: Date.now(), type: it.type, amount: it.amount, date: it.date,
+      categoryId: catById(it.categoryId) ? it.categoryId : unclassified(it.type),
+      accountId: im.accountId, note: it.desc.slice(0, 200), importKey: I.importKey(it),
+    });
+  const todo = chosen.filter((it) => !catById(it.categoryId)).length;
+  ui.imp = null;
+  ui.tab = 'tx';
+  Object.assign(ui.tx, { period: 'all', type: '', cat: '', acc: '', q: '' });
+  commit();
+  window.scrollTo(0, 0);
+  toast(`Importati ${chosen.length} movimenti.${todo ? ` ${todo} sono in “Da classificare”: toccali per scegliere la categoria.` : ''}`);
+  budgetToasts(before, month);
+}
+
+function editRule(id) {
+  const r = db.rules.find((x) => x.id === id);
+  openDialog(
+    r ? 'Modifica regola' : 'Nuova regola',
+    `<label>Se la descrizione contiene<input name="text" required maxlength="60" value="${esc(r?.text || '')}" placeholder="Es. esselunga" autocapitalize="off"></label>
+     <label>Assegna la categoria<select name="categoryId" required>${catOptions(r?.categoryId, { none: 'Scegli…' })}</select></label>
+     <p class="hint">Maiuscole e minuscole non contano. Una regola su una categoria di entrata vale solo per le entrate, e viceversa.</p>`,
+    (f) => {
+      const text = f.text.trim().toLowerCase();
+      if (text.length < 2) return 'Scrivi almeno 2 caratteri.';
+      if (!catById(f.categoryId)) return 'Scegli una categoria.';
+      if (db.rules.some((x) => x.id !== id && x.text === text && catById(x.categoryId)?.kind === catById(f.categoryId).kind)) return 'Esiste già una regola con questo testo.';
+      if (r) Object.assign(r, { text, categoryId: f.categoryId });
+      else db.rules.push({ id: L.uid(), text, categoryId: f.categoryId });
+      return null;
+    },
+    r &&
+      (() => {
+        db.rules = db.rules.filter((x) => x.id !== id);
+        return null;
+      })
+  );
+}
+
+const VIEWS = { home: viewHome, tx: viewTx, rep: viewReports, bud: viewBudgets, set: viewSettings, imp: viewImport };
+const TITLES = { home: 'Riepilogo', tx: 'Movimenti', rep: 'Resoconti', bud: 'Budget', set: 'Impostazioni', imp: 'Importa estratto conto' };
 
 function render() {
   document.documentElement.dataset.theme = db.settings.theme === 'auto' ? '' : db.settings.theme;
   if (!document.documentElement.dataset.theme) delete document.documentElement.dataset.theme;
+  if (ui.tab === 'imp' && !ui.imp) ui.tab = 'tx';
+  document.body.classList.toggle('importing', ui.tab === 'imp');
   $('#title').textContent = TITLES[ui.tab];
   $('#main').innerHTML = VIEWS[ui.tab]();
   const alerts = L.allBudgetStatus(db, thisMonth()).filter((s) => s.state !== 'ok').length;
@@ -589,6 +716,7 @@ function editCategory(id, parentId, rootKind) {
         if (!confirm(`Eliminare “${c.name}”${subs ? ` e le sue ${subs} sottocategorie` : ''}?`)) return ' ';
         db.categories = db.categories.filter((x) => !ids.has(x.id));
         db.budgets = db.budgets.filter((b) => !ids.has(b.categoryId));
+        db.rules = db.rules.filter((r) => !ids.has(r.categoryId));
         return null;
       })
   );
@@ -676,6 +804,17 @@ const ACTIONS = {
   'acc-edit': editAccount,
   'cat-new': (id) => editCategory(null, id || null),
   'cat-new-root': (kind) => editCategory(null, null, kind),
+  'rule-new': () => editRule(null),
+  'rule-edit': editRule,
+  'imp-pick': () => $('#bankfile').click(),
+  'imp-cancel': () => {
+    ui.tab = ui.imp?.back || 'tx';
+    ui.imp = null;
+    render();
+  },
+  'imp-confirm': confirmImport,
+  'imp-all': () => setAllImport(true),
+  'imp-none': () => setAllImport(false),
   'rec-new': () => editRecurring(null),
   'rec-edit': editRecurring,
   'rep-kind': (id) => {
@@ -706,6 +845,18 @@ const ACTIONS = {
   },
 };
 
+function setAllImport(on) {
+  for (const it of ui.imp.items) it.selected = on;
+  render();
+}
+
+function refreshImportButton() {
+  const n = impCount();
+  const b = $('#impgo');
+  b.textContent = impButtonLabel(n);
+  b.disabled = !n;
+}
+
 function shift(n) {
   ui.month = L.shiftMonth(ui.month, ui.tab === 'rep' && ui.rep.mode === 'year' ? n * 12 : n);
   render();
@@ -728,6 +879,38 @@ document.addEventListener('change', (e) => {
   if (t.id === 'importfile') {
     if (t.files[0]) importFile(t.files[0]);
     t.value = '';
+  } else if (t.id === 'bankfile') {
+    if (t.files[0]) startImport(t.files[0]);
+    t.value = '';
+  } else if (t.dataset.imp === 'account') {
+    ui.imp.accountId = t.value;
+    I.markDuplicates(ui.imp.items, db.transactions, t.value);
+    render();
+  } else if (t.dataset.imp) {
+    const key = t.dataset.imp.split('.')[1];
+    const m = ui.imp.map;
+    m[key] = t.value === '' ? null : Number(t.value);
+    // Colonna unica e colonne separate si escludono a vicenda.
+    if (key === 'amount' && m.amount !== null) m.inc = m.out = null;
+    if ((key === 'inc' || key === 'out') && m[key] !== null) m.amount = null;
+    rebuildImport();
+    render();
+  } else if (t.dataset.impRow) {
+    ui.imp.items[t.dataset.impRow].selected = t.checked;
+    refreshImportButton();
+  } else if (t.dataset.impCat) {
+    // La stessa scelta vale per le altre righe con la stessa descrizione ancora senza categoria.
+    const it = ui.imp.items[t.dataset.impCat];
+    it.categoryId = t.value;
+    const key = I.normalizeDesc(it.desc);
+    if (t.value && key)
+      ui.imp.items.forEach((o, i) => {
+        if (o !== it && !o.categoryId && o.type === it.type && I.normalizeDesc(o.desc) === key) {
+          o.categoryId = t.value;
+          const sel = $(`[data-imp-cat="${i}"]`);
+          if (sel) sel.value = t.value;
+        }
+      });
   } else if (t.dataset.f && t.dataset.f !== 'tx.q') {
     const [group, key] = t.dataset.f.split('.');
     ui[group][key] = t.value;
